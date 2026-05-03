@@ -332,7 +332,7 @@ function showAudioEffect(icon, label, color, key) {
 function connectWS() {
   let ws;
   try {
-    ws = new WebSocket('ws://localhost:8080');
+    ws = new WebSocket('wss://annually-outlast-remarry.ngrok-free.dev');
 
     ws.onopen = () => console.log('WebSocket接続OK');
 
