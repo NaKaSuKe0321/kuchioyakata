@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="ngrok-skip-browser-warning" content="true">
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      width:1920px; height:1080px;
+      background:transparent;
+      overflow:hidden;
+      font-family:'Hiragino Kaku Gothic ProN','Meiryo',sans-serif;
+    }
+    #app { position:fixed; inset:0; }
+
+    .effect-wrap {
+      position:fixed;
+      transform:translate(-50%,-50%);
+      z-index:100;
+      animation:effectIn 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards;
+    }
+    .effect-wrap.out { animation:effectOut 0.7s ease forwards; }
+
+    @keyframes effectIn {
+      from { transform:translate(-50%,-50%) scale(0.4) rotate(-8deg); opacity:0; }
+      to   { transform:translate(-50%,-50%) scale(1) rotate(0); opacity:1; }
+    }
+    @keyframes effectOut {
+      from { opacity:1; }
+      to   { opacity:0; transform:translate(-50%,-50%) scale(0.9); }
+    }
+    @keyframes rainbowShift { 0%{background-position:0% 50%} 100%{background-position:200% 50%} }
+    @keyframes iconPulse { 0%{transform:scale(1)} 100%{transform:scale(1.12)} }
+    @keyframes textGlow  { 0%{text-shadow:0 0 20px currentColor} 100%{text-shadow:0 0 40px currentColor,0 0 80px currentColor} }
+    @keyframes ringPulse { 0%,100%{box-shadow:0 0 40px rgba(255,200,0,0.8)} 50%{box-shadow:0 0 60px rgba(255,220,0,1)} }
+
+    /* ── 占いカード ── */
+    .fortune-card { width:280px; background:#0a0014; border-radius:18px; overflow:hidden; }
+    .fortune-header { padding:14px 16px; text-align:center; position:relative; }
+    .fortune-header-shine { position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,0.2),transparent); }
+    .fortune-emoji { font-size:42px; display:block; }
+    .fortune-luck  { font-size:30px; font-weight:900; color:#fff; letter-spacing:2px; }
+    .fortune-body  { padding:12px; }
+    .fortune-row   { display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:9px; margin-bottom:5px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.06); }
+    .fortune-row-icon  { font-size:16px; }
+    .fortune-row-label { color:#888; font-size:10px; width:72px; }
+    .fortune-row-value { font-weight:bold; font-size:12px; flex:1; color:#fff; }
+    .fortune-msg { margin-top:6px; padding:10px 12px; border-radius:10px; color:#fff; font-size:11px; text-align:center; }
+    .countdown   { text-align:center; margin-top:8px; color:rgba(255,255,255,0.35); font-size:11px; }
+    .super-rare-banner {
+      position:absolute; top:-16px; left:50%; transform:translateX(-50%);
+      background:linear-gradient(90deg,#ff0080,#ff6600,#ffff00,#00ff00,#ff0080);
+      background-size:200% 100%; animation:rainbowShift 1s linear infinite;
+      border-radius:99px; padding:3px 16px; color:#000; font-weight:900; font-size:12px; white-space:nowrap; z-index:10;
+    }
+
+    /* ── クイズカード ── */
+    .quiz-wrap   { display:flex; align-items:flex-start; }
+    .quiz-card   { width:270px; }
+    .quiz-header { background:linear-gradient(135deg,#00c9ff,#92fe9d); border-radius:14px 14px 0 0; padding:8px 14px; display:flex; align-items:center; gap:8px; }
+    .quiz-header-icon { font-size:20px; }
+    .quiz-header-text { font-size:16px; font-weight:900; color:#000; }
+    .quiz-body   { background:rgba(0,10,30,0.95); border:2px solid rgba(0,200,255,0.3); border-top:none; padding:13px; }
+    .quiz-question { color:#fff; font-size:14px; font-weight:bold; line-height:1.5; margin-bottom:11px; }
+    .quiz-choices { display:flex; gap:7px; margin-bottom:10px; }
+    .quiz-choice { flex:1; padding:8px 5px; border-radius:9px; text-align:center; color:#fff; font-size:11px; }
+    .choice-a { background:rgba(255,80,80,0.2); border:1px solid rgba(255,80,80,0.4); }
+    .choice-b { background:rgba(80,100,255,0.2); border:1px solid rgba(80,100,255,0.4); }
+    .quiz-choice-icon { font-size:18px; margin-bottom:3px; }
+    .quiz-free  { background:rgba(80,255,150,0.08); border-radius:9px; padding:9px; color:#80ffbb; font-size:11px; text-align:center; margin-bottom:10px; border:1px solid rgba(80,255,150,0.2); }
+    .quiz-hint  { color:#888; font-size:9px; margin-bottom:8px; text-align:center; }
+    .timer-wrap { position:relative; height:10px; background:rgba(255,255,255,0.08); border-radius:99px; overflow:hidden; }
+    .timer-bar  { height:100%; border-radius:99px; transition:width 1s linear,background 0.3s; }
+    .timer-num  { text-align:center; font-size:26px; font-weight:900; margin-top:3px; }
+    .quiz-footer{ background:rgba(0,10,30,0.95); border-radius:0 0 14px 14px; height:10px; border:2px solid rgba(0,200,255,0.3); border-top:none; }
+
+    /* ── 正解カード ── */
+    .answer-card { width:270px; background:linear-gradient(135deg,#0a2a0a,#001a2a); border:2px solid rgba(80,255,150,0.5); border-radius:18px; padding:20px 18px; text-align:center; box-shadow:0 0 60px rgba(80,255,150,0.35); }
+    .answer-label { font-size:13px; color:#80ffbb; font-weight:bold; margin-bottom:5px; letter-spacing:2px; }
+    .answer-text  { font-size:28px; font-weight:900; color:#44ff88; padding:10px 0; letter-spacing:2px; animation:textGlow 0.8s ease infinite alternate; }
+    .answer-expl  { color:#888; font-size:10px; margin-bottom:11px; }
+    .answer-challenge { background:rgba(80,255,150,0.08); border-radius:11px; padding:9px 14px; border:1px solid rgba(80,255,150,0.2); color:#80ffbb; font-weight:bold; font-size:12px; }
+
+    /* ── チャット ── */
+    .chat-stream { display:flex; flex-direction:column; justify-content:flex-end; gap:3px; width:130px; padding:5px; align-self:flex-end; }
+    .chat-msg { background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.08); border-radius:7px; padding:3px 7px; color:#ccc; font-size:9px; }
+    .chat-msg.correct { background:rgba(80,255,150,0.25); border-color:rgba(80,255,150,0.5); color:#80ffbb; font-weight:bold; }
+    .chat-name { color:#888; margin-right:3px; }
+    .chat-name.correct { color:#44ff88; }
+
+    /* ── ナイギフ ── */
+    .naigif-wrap  { position:relative; border-radius:14px; padding:4px; animation:ringPulse 1.5s ease infinite; }
+    .naigif-img   { display:block; width:210px; border-radius:10px; object-fit:cover; }
+    .naigif-badge { position:absolute; bottom:-12px; left:50%; transform:translateX(-50%); background:linear-gradient(90deg,#ff6600,#ffcc00); border-radius:99px; padding:3px 16px; color:#000; font-weight:900; font-size:13px; white-space:nowrap; }
+
+    /* ── 音声演出 ── */
+    .audio-card { background:rgba(0,0,0,0.85); border-radius:16px; padding:16px 28px; text-align:center; min-width:180px; }
+    .audio-icon  { font-size:46px; margin-bottom:8px; animation:iconPulse 0.8s ease infinite alternate; }
+    .audio-label { font-weight:900; font-size:16px; letter-spacing:1px; color:#fff; }
+    .audio-sub   { font-size:10px; margin-top:6px; }
+
+/* ── 業務警報テロップ ── */
+.keikoku-wrap {
+  width: 600px;
+  border: 4px solid #ff4444;
+  border-radius: 16px;
+  background: rgba(0,0,0,0.92);
+  overflow: hidden;
+}
+.keikoku-title {
+  background: #ff2222;
+  color: #fff;
+  font-size: 22px;
+  font-weight: 900;
+  text-align: center;
+  padding: 10px;
+  letter-spacing: 4px;
+}
+.keikoku-rarity {
+  font-size: 12px;
+  text-align: center;
+  padding: 6px;
+  font-weight: bold;
+  letter-spacing: 2px;
+}
+.keikoku-body {
+  color: #fff;
+  font-size: 32px;
+  font-weight: 900;
+  text-align: center;
+  padding: 24px 16px;
+  letter-spacing: 1px;
+}
+@keyframes keikokuPulse {
+  from { box-shadow: 0 0 20px rgba(255,50,50,0.5); }
+  to   { box-shadow: 0 0 60px rgba(255,50,50,1); }
+}
+
+/* ── ランキング ── */
+.ranking-panel {
+  position: fixed;
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 220px;
+  background: rgba(0,0,0,0.75);
+  border: 1px solid rgba(0,200,255,0.3);
+  border-radius: 14px;
+  padding: 12px;
+  z-index: 50;
+}
+.ranking-title {
+  color: #00c8ff;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-align: center;
+  margin-bottom: 10px;
+  border-bottom: 1px solid rgba(0,200,255,0.2);
+  padding-bottom: 8px;
+}
+.ranking-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 4px;
+  border-radius: 7px;
+  margin-bottom: 3px;
+}
+.ranking-item:nth-child(2) { background: rgba(255,215,0,0.12); }
+.ranking-item:nth-child(3) { background: rgba(192,192,192,0.10); }
+.ranking-item:nth-child(4) { background: rgba(205,127,50,0.10); }
+.ranking-rank {
+  font-size: 13px;
+  font-weight: 900;
+  color: #888;
+  width: 22px;
+  text-align: center;
+}
+.ranking-rank.gold   { color: #ffd700; }
+.ranking-rank.silver { color: #c0c0c0; }
+.ranking-rank.bronze { color: #cd7f32; }
+.ranking-name {
+  flex: 1;
+  font-size: 11px;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ranking-score {
+  font-size: 10px;
+  color: #00c8ff;
+  text-align: right;
+  line-height: 1.4;
+}
+
+  </style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+// ============================================================
+// ★ サーバー接続先設定（ngrok固定ドメイン）
+//    接続先を変えたいときはここだけ書き換えればOK
+// ============================================================
+const SERVER_HTTPS = 'https://annually-outlast-remarry.ngrok-free.dev';
+const SERVER_WSS   = 'wss://annually-outlast-remarry.ngrok-free.dev';
+
+// 相対パス（/naigif.jpg など）をngrok経由の絶対URLに変換
+function absUrl(u) {
+  if (!u) return u;
+  if (u.startsWith('http://') || u.startsWith('https://')) return u;
+  if (u.startsWith('/')) return SERVER_HTTPS + u;
+  return u;
+}
+
+// ============================================================
+// 位置設定（画面の%で指定。ここを変えると表示位置が変わります）
+// ============================================================
+let effectConfig = {};
+async function loadEffectConfig() {
+  try {
+    const res = await fetch(SERVER_HTTPS + '/api/config', {
+      headers: { 'ngrok-skip-browser-warning': 'true' }
+    });
+    const data = await res.json();
+    effectConfig = data.effects || {};
+  } catch(e) { console.log('config取得失敗、デフォルト使用'); }
+}
+function getPos(key) {
+  return effectConfig[key]?.position || { x:55, y:45 };
+}
+
+// ============================================================
+// 運勢スタイル
+// ============================================================
+const RARITIES = {
+  '超吉':{ bg:'linear-gradient(135deg,#ff0080,#ff6600,#ffff00)', glow:'#ff00aa', emoji:'👑', superRare:true },
+  '大吉':{ bg:'linear-gradient(135deg,#ffd700,#ff8c00)',          glow:'#ffd700', emoji:'✨' },
+  '中吉':{ bg:'linear-gradient(135deg,#ff6b6b,#ee5a24)',          glow:'#ff6b6b', emoji:'🌸' },
+  '吉':  { bg:'linear-gradient(135deg,#20bf6b,#01a3a4)',          glow:'#20bf6b', emoji:'🍀' },
+  '凶':  { bg:'linear-gradient(135deg,#636e72,#2d3436)',          glow:'#636e72', emoji:'🌧️' },
+  '大凶':{ bg:'linear-gradient(135deg,#c0392b,#6c0101)',          glow:'#c0392b', emoji:'💀' },
+};
+
+// ============================================================
+// エフェクト管理
+// ============================================================
+const app = document.getElementById('app');
+let currentWrap = null;
+let cdInterval   = null;
+let dismissTimer = null;
+let quizData     = null;
+
+function clearEffect(cb) {
+  if (cdInterval)   { clearInterval(cdInterval);   cdInterval   = null; }
+  if (dismissTimer) { clearTimeout(dismissTimer);  dismissTimer = null; }
+  if (currentWrap) {
+    currentWrap.classList.add('out');
+    const old = currentWrap;
+    setTimeout(() => { old.remove(); if (cb) cb(); }, 700);
+    currentWrap = null;
+  } else {
+    if (cb) cb();
+  }
+}
+
+function createWrap(key) {
+  clearEffect();
+  const w = document.createElement('div');
+  w.className = 'effect-wrap';
+  const p = getPos(key);
+  w.style.left = p.x + '%';
+  w.style.top  = p.y + '%';
+  app.appendChild(w);
+  currentWrap = w;
+  return w;
+}
+
+function startCountdown(sec, el, onDone) {
+  let cd = sec;
+  if (el) el.textContent = cd + '秒後に閉じます';
+  cdInterval = setInterval(() => {
+    cd--;
+    if (el && cd > 0) el.textContent = cd + '秒後に閉じます';
+    if (cd <= 0) {
+      clearInterval(cdInterval); cdInterval = null;
+      clearEffect(onDone);
+    }
+  }, 1000);
+}
+
+// ============================================================
+// 占いエフェクト
+// ============================================================
+function showFortune(data) {
+  const w = createWrap('fortune');
+  const r = RARITIES[data.luck] || RARITIES['吉'];
+  const isChoki = !!r.superRare;
+
+  const borderStyle = isChoki
+    ? `border:3px solid transparent;
+       background-image:linear-gradient(#0a0014,#0a0014),linear-gradient(135deg,#ff0080,#ff6600,#ffff00,#00ff00,#0080ff,#ff0080);
+       background-origin:border-box; background-clip:padding-box,border-box;`
+    : `border:2px solid ${r.glow};`;
+
+  w.innerHTML = `
+    <div style="position:relative; width:280px;">
+      ${isChoki ? '<div class="super-rare-banner">⚡ SUPER RARE ⚡</div>' : ''}
+      <div class="fortune-card" style="${borderStyle} box-shadow:0 0 60px ${r.glow}88;">
+        <div class="fortune-header" style="background:${r.bg};">
+          <div class="fortune-header-shine"></div>
+          <span class="fortune-emoji" style="${isChoki?'animation:iconPulse 0.6s ease infinite alternate;':''}">${r.emoji}</span>
+          <div class="fortune-luck" style="font-size:${isChoki?'36px':'30px'}; text-shadow:0 0 30px ${r.glow};">${data.luck}</div>
+        </div>
+        <div class="fortune-body">
+          <div class="fortune-row">
+            <span class="fortune-row-icon">💕</span>
+            <span class="fortune-row-label">恋愛運</span>
+            <span class="fortune-row-value">${data.love}</span>
+          </div>
+          <div class="fortune-row">
+            <span class="fortune-row-icon">💼</span>
+            <span class="fortune-row-label">仕事運</span>
+            <span class="fortune-row-value">${data.work}</span>
+          </div>
+          <div class="fortune-row" style="background:${r.glow}22; border:1px solid ${r.glow}44;">
+            <span class="fortune-row-icon">🎨</span>
+            <span class="fortune-row-label">ラッキーカラー</span>
+            <span class="fortune-row-value" style="color:${r.glow};">${data.lucky_color}</span>
+          </div>
+          <div class="fortune-msg" style="background:linear-gradient(135deg,${r.glow}22,transparent); border:1px solid ${r.glow}33;">✨ ${data.message}</div>
+        </div>
+      </div>
+      <div class="countdown" id="f-cd"></div>
+    </div>`;
+
+  startCountdown(10, document.getElementById('f-cd'));
+}
+
+// ============================================================
+// クイズエフェクト
+// ============================================================
+function showQuiz(data) {
+  quizData = data;
+  const w = createWrap('quiz');
+
+  const choicesHTML = data.choices
+    ? `<div class="quiz-choices">
+        <div class="quiz-choice choice-a"><div class="quiz-choice-icon">🅰️</div>${data.choices[0]}</div>
+        <div class="quiz-choice choice-b"><div class="quiz-choice-icon">🅱️</div>${data.choices[1]}</div>
+       </div>`
+    : `<div class="quiz-free">💬 チャットに答えを書いてね！</div>`;
+
+  w.innerHTML = `
+    <div class="quiz-wrap">
+      <div class="quiz-card">
+        <div class="quiz-header">
+          <span class="quiz-header-icon">🎯</span>
+          <span class="quiz-header-text">クイズです！</span>
+        </div>
+        <div class="quiz-body">
+          <div class="quiz-question">${data.question}</div>
+          ${choicesHTML}
+          <div class="quiz-hint">ヒント：${data.hint || ''}</div>
+          <div class="timer-wrap"><div class="timer-bar" id="q-bar" style="width:100%;background:linear-gradient(90deg,#44ff88,#44ff8888);"></div></div>
+          <div class="timer-num" id="q-num" style="color:#44ff88;">5</div>
+        </div>
+        <div class="quiz-footer"></div>
+      </div>
+      <div class="chat-stream" id="chat-stream"></div>
+    </div>`;
+
+  let t = 5;
+  cdInterval = setInterval(() => {
+    t--;
+    const pct = (t / 5) * 100;
+    const col = t <= 1 ? '#ff2244' : t <= 2 ? '#ff8800' : t <= 3 ? '#ffcc00' : '#44ff88';
+    const bar = document.getElementById('q-bar');
+    const num = document.getElementById('q-num');
+    if (bar) { bar.style.width = pct + '%'; bar.style.background = `linear-gradient(90deg,${col},${col}88)`; }
+    if (num) { num.textContent = t; num.style.color = col; }
+    if (t <= 0) {
+      clearInterval(cdInterval); cdInterval = null;
+      showAnswer(w, data);
+    }
+  }, 1000);
+}
+
+function showAnswer(w, data) {
+  w.innerHTML = `
+    <div>
+      <div class="answer-card">
+        <div class="answer-label">🎉 正解は…</div>
+        <div class="answer-text">${data.answer}</div>
+        <div class="answer-expl">${data.explanation || ''}</div>
+        <div class="answer-challenge">またクイズに挑戦してね！🌟</div>
+      </div>
+      <div class="countdown" id="a-cd"></div>
+    </div>`;
+  startCountdown(3, document.getElementById('a-cd'));
+}
+
+function addChat(user, text, correct) {
+  const el = document.getElementById('chat-stream');
+  if (!el) return;
+  const d = document.createElement('div');
+  d.className = 'chat-msg' + (correct ? ' correct' : '');
+  d.innerHTML = `<span class="chat-name${correct?' correct':''}">${user}</span>${text}`;
+  el.appendChild(d);
+  while (el.children.length > 6) el.removeChild(el.firstChild);
+}
+
+// ============================================================
+// ナイギフエフェクト
+// ============================================================
+function showNaigif() {
+  const w = createWrap('keikoku');
+  const size = effectConfig.naigif?.size || 210;
+  const imageUrl = absUrl(effectConfig.naigif?.imageUrl || '/naigif.jpg');
+  const dur = (effectConfig.naigif?.duration || 3) * 1000;
+  w.innerHTML = `
+    <div>
+      <div class="naigif-wrap" style="background:linear-gradient(135deg,#ffd700,#ff8c00,#ffd700); box-shadow:0 0 40px rgba(255,200,0,0.8);">
+        <img class="naigif-img" src="${imageUrl}" style="width:${size}px" onerror="this.onerror=null;this.src=absUrl('/naigif.jpg')" alt="ナイギフ">
+        <div class="naigif-badge">👍 ナイギフ！👍</div>
+      </div>
+      <div class="countdown" style="margin-top:20px;" id="n-cd"></div>
+    </div>`;
+  startCountdown(effectConfig.naigif?.duration || 3, document.getElementById('n-cd'));
+}
+
+// ============================================================
+// 音声演出ビジュアル
+// ============================================================
+function showAudioEffect(icon, label, color, key) {
+  const w = createWrap(key);
+  const cfg = effectConfig[key] || {};
+  const dur = cfg.duration || 5;
+  let inner = '';
+  if (cfg.showImage && cfg.imageUrl) {
+    inner = `<div class="naigif-wrap" style="background:linear-gradient(135deg,${color}44,${color}22);box-shadow:0 0 40px ${color}66;">
+      <img class="naigif-img" src="${absUrl(cfg.imageUrl)}" style="width:${cfg.size||200}px" alt="${label}">
+      <div class="naigif-badge" style="background:${color};">${label}</div>
+    </div>`;
+  } else {
+    inner = `<div class="audio-card" style="border:2px solid ${color}; box-shadow:0 0 40px ${color}66;">
+      <div class="audio-icon">${icon}</div>
+      <div class="audio-label" style="text-shadow:0 0 15px ${color};">${label}</div>
+      <div class="audio-sub" style="color:${color};">♪ 再生中…</div>
+    </div>`;
+  }
+  w.innerHTML = `<div>${inner}<div class="countdown" style="margin-top:8px;" id="au-cd"></div></div>`;
+  startCountdown(dur, document.getElementById('au-cd'));
+}
+
+// ============================================================
+// 業務警報テロップ
+// ============================================================
+function showKeikoku(text, rarity) {
+  const rarityColors = {
+    'レア':               { color: '#44aaff', bg: '#001133' },
+    'スーパーレア':       { color: '#cc44ff', bg: '#110022' },
+    'ウルトラレア':       { color: '#ffaa00', bg: '#221100' },
+    'ウルトラスーパーレア':{ color: '#ff0066', bg: '#220011' },
+  };
+  const rc = rarityColors[rarity] || rarityColors['レア'];
+  const w = createWrap('naigif');
+  w.style.left = '50%';
+  w.style.top  = '20%';
+  w.innerHTML = `
+    <div class="keikoku-wrap" style="border-color:${rc.color}; box-shadow:0 0 40px ${rc.color}88; animation:keikokuPulse 0.5s ease infinite alternate;">
+      <div class="keikoku-title" style="background:${rc.color};">⚠️ 業務警報発令 ⚠️</div>
+      <div class="keikoku-rarity" style="color:${rc.color}; background:${rc.bg};">★ ${rarity} ★</div>
+      <div class="keikoku-body">${text}</div>
+    </div>
+    <div class="countdown" style="margin-top:12px;" id="k-cd"></div>`;
+  startCountdown(7, document.getElementById('k-cd'));
+}
+
+function updateRankingPanel(data) {
+  let panel = document.getElementById('ranking-panel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'ranking-panel';
+    panel.className = 'ranking-panel';
+    document.getElementById('app').appendChild(panel);
+  }
+  const medals = ['gold', 'silver', 'bronze'];
+  const rows = data.map((item, i) => `
+    <div class="ranking-item">
+      <div class="ranking-rank ${medals[i] || ''}">${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}</div>
+      <div class="ranking-name">${item.nickname}</div>
+      <div class="ranking-score">💎${item.diamonds}<br>🎁${item.count}</div>
+    </div>
+  `).join('');
+  panel.innerHTML = `<div class="ranking-title">🏆 ギフトランキング</div>${rows}`;
+}
+
+// ============================================================
+// WebSocket接続（ngrok経由 wss）
+// ============================================================
+function connectWS() {
+  let ws;
+  try {
+    ws = new WebSocket(SERVER_WSS);
+
+    ws.onopen = () => console.log('WebSocket接続OK:', SERVER_WSS);
+
+    ws.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+
+      // チャット（クイズ回答用）
+      if (data.type === 'chat') {
+        if (quizData && document.getElementById('chat-stream')) {
+          const correct = quizData.answer && data.text.includes(quizData.answer);
+          addChat(data.user, data.text, correct);
+        }
+        return;
+      }
+
+      // エフェクト
+      switch (data.effect) {
+        case 'fortune': showFortune(data.data);                                   break;
+        case 'quiz':    showQuiz(data.data);                                       break;
+        case 'naigif':  showNaigif();                                              break;
+        case 'hora1':   showAudioEffect('🐟','びっくりした魚','#00ccff','hora1'); break;
+        case 'hora2':   showAudioEffect('📣','名前の呼びかけ','#ff8844','hora2'); break;
+        case 'oldies':  showAudioEffect('🎵','オールディーズ','#aa44ff','oldies');break;
+        case 'keikoku': showKeikoku(data.text, data.rarity); break;
+        case 'ranking': updateRankingPanel(data.data); break;
+      }
+    };
+
+    ws.onclose = () => {
+      console.log('切断 → 3秒後に再接続');
+      setTimeout(connectWS, 3000);
+    };
+  } catch(e) {
+    setTimeout(connectWS, 3000);
+  }
+}
+
+async function init() {
+  await loadEffectConfig();
+  connectWS();
+}
+init();
+</script>
+</body>
+</html>
