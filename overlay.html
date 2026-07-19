@@ -136,6 +136,60 @@
   to   { box-shadow: 0 0 60px rgba(255,50,50,1); }
 }
 
+/* ── 大喜利（パターンC）── */
+.ogiri-wrap {
+  position: fixed;
+  left: 50%;
+  top: 18%;
+  transform: translate(-50%,-50%);
+  z-index: 90;
+  width: 760px;
+  display: none;
+  animation: effectIn 0.5s cubic-bezier(0.34,1.56,0.64,1);
+}
+.ogiri-board {
+  background: rgba(10,5,0,0.92);
+  border: 4px solid #d4af37;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 0 50px rgba(212,175,55,0.5);
+}
+.ogiri-title {
+  background: linear-gradient(135deg,#d4af37,#f5d76e,#d4af37);
+  color: #221a00;
+  font-size: 20px;
+  font-weight: 900;
+  text-align: center;
+  padding: 8px;
+  letter-spacing: 8px;
+}
+.ogiri-text {
+  color: #fff;
+  font-size: 30px;
+  font-weight: 900;
+  text-align: center;
+  padding: 26px 30px;
+  line-height: 1.5;
+}
+.ogiri-timer { text-align: center; padding: 0 0 16px; display: none; }
+.ogiri-timer-num { font-size: 46px; font-weight: 900; color: #f5d76e; }
+.ogiri-timer-label { font-size: 12px; color: #aa9955; letter-spacing: 3px; }
+.ogiri-scoring { text-align: center; padding: 0 0 16px; display: none; }
+.ogiri-scoring-label { font-size: 15px; font-weight: 900; color: #ff8fc7; letter-spacing: 2px; margin-bottom: 6px; }
+.ogiri-score-num { font-size: 44px; font-weight: 900; color: #ff8fc7; text-shadow: 0 0 20px rgba(255,143,199,0.6); }
+.ogiri-scoring-cd { font-size: 12px; color: #aa9955; margin-top: 4px; }
+.ogiri-result { text-align: center; padding: 0 0 20px; display: none; }
+.ogiri-result-label { font-size: 15px; font-weight: 900; color: #f5d76e; letter-spacing: 4px; margin-bottom: 6px; }
+.ogiri-result-num { font-size: 58px; font-weight: 900; color: #ffdd44; text-shadow: 0 0 30px rgba(255,221,68,0.8); animation: textGlow 0.8s ease infinite alternate; }
+.ogiri-result-unit { font-size: 22px; margin-left: 4px; }
+.ogiri-entry { text-align: center; font-size: 13px; color: #d4af37; padding: 0 0 10px; display: none; }
+.ogiri-ippon { text-align: center; padding: 0 0 20px; display: none; }
+.ogiri-ippon-text { font-size: 64px; font-weight: 900; color: #ffdd44; letter-spacing: 10px; text-shadow: 0 0 30px rgba(255,221,68,0.9); animation: textGlow 0.5s ease infinite alternate; }
+.ogiri-ippon-sub { font-size: 15px; color: #f5d76e; margin-top: 6px; font-weight: 900; }
+.ogiri-failed { text-align: center; padding: 0 0 20px; display: none; }
+.ogiri-failed-text { font-size: 38px; font-weight: 900; color: #88aaff; letter-spacing: 5px; }
+.ogiri-failed-sub { font-size: 13px; color: #8899aa; margin-top: 8px; }
+
 /* ── ランキング ── */
 .ranking-panel {
   position: fixed;
@@ -201,11 +255,22 @@
 <div id="app"></div>
 <script>
 // ============================================================
-// ★ サーバー接続先設定（ngrok固定ドメイン）
-//    接続先を変えたいときはここだけ書き換えればOK
+// ★ サーバー接続先設定
+//    localhost・LAN内IPで開いたときは開いた場所にそのまま接続し、
+//    それ以外（Live Studio・GitHub Pages経由）はngrok固定ドメインを使う
 // ============================================================
-const SERVER_HTTPS = 'https://annually-outlast-remarry.ngrok-free.dev';
-const SERVER_WSS   = 'wss://annually-outlast-remarry.ngrok-free.dev';
+const NGROK_HTTPS = 'https://annually-outlast-remarry.ngrok-free.dev';
+const NGROK_WSS   = 'wss://annually-outlast-remarry.ngrok-free.dev';
+const IS_LOCAL = /^(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)$/.test(location.hostname);
+const SERVER_HTTPS = IS_LOCAL ? location.origin : NGROK_HTTPS;
+const SERVER_WSS   = IS_LOCAL ? location.origin.replace(/^http/, 'ws') : NGROK_WSS;
+
+// HTML注入対策: 視聴者名・コメントなど外部由来の文字列は必ずこれを通して表示する
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 
 // 相対パス（/naigif.jpg など）をngrok経由の絶対URLに変換
 function absUrl(u) {
@@ -407,7 +472,7 @@ function addChat(user, text, correct) {
   if (!el) return;
   const d = document.createElement('div');
   d.className = 'chat-msg' + (correct ? ' correct' : '');
-  d.innerHTML = `<span class="chat-name${correct?' correct':''}">${user}</span>${text}`;
+  d.innerHTML = `<span class="chat-name${correct?' correct':''}">${esc(user)}</span>${esc(text)}`;
   el.appendChild(d);
   while (el.children.length > 6) el.removeChild(el.firstChild);
 }
@@ -479,7 +544,181 @@ function showKeikoku(text, rarity) {
   startCountdown(7, document.getElementById('k-cd'));
 }
 
-function updateRankingPanel(data) {
+// ============================================================
+// 大喜利（パターンC）
+// ============================================================
+let ogiriCdInterval = null;
+let ogiriAudio = null;
+let ogiriMatrix = {}; // 出力先別ON/OFF（ogiri-stateイベントで更新。この画面は「配信画面」列を見る）
+
+function ogiriRowOn(row) {
+  const r = ogiriMatrix[row];
+  return !r || (r.all !== false && r.overlay !== false);
+}
+
+function ensureOgiriEl() {
+  let el = document.getElementById('ogiri-wrap');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'ogiri-wrap';
+    el.className = 'ogiri-wrap';
+    el.innerHTML = `
+      <div class="ogiri-board">
+        <div class="ogiri-title">お　題</div>
+        <div class="ogiri-text" id="ogiri-text"></div>
+        <div style="text-align:center;display:none;padding:0 0 16px;" id="ogiri-image-wrap">
+          <img id="ogiri-image" style="max-width:80%;max-height:220px;border-radius:10px;border:2px solid #d4af37;" alt="お題画像">
+        </div>
+        <div class="ogiri-timer" id="ogiri-timer">
+          <div class="ogiri-timer-num" id="ogiri-timer-num"></div>
+          <div class="ogiri-timer-label">回答タイム</div>
+        </div>
+        <div class="ogiri-scoring" id="ogiri-scoring">
+          <div class="ogiri-scoring-label">🎁 採点タイム！ギフトで点数をつけてね</div>
+          <div class="ogiri-score-num" id="ogiri-score-num">0</div>
+          <div class="ogiri-scoring-cd" id="ogiri-scoring-cd"></div>
+        </div>
+        <div class="ogiri-result" id="ogiri-result">
+          <div class="ogiri-result-label">🏆 結果発表 🏆</div>
+          <div class="ogiri-result-num"><span id="ogiri-result-num">0</span><span class="ogiri-result-unit">点</span></div>
+        </div>
+        <div class="ogiri-ippon" id="ogiri-ippon">
+          <div class="ogiri-ippon-text">ＩＰＰＯＮ！</div>
+          <div class="ogiri-ippon-sub" id="ogiri-ippon-sub"></div>
+        </div>
+        <div class="ogiri-failed" id="ogiri-failed">
+          <div class="ogiri-failed-text">ざんねん…</div>
+          <div class="ogiri-failed-sub" id="ogiri-failed-sub"></div>
+        </div>
+        <div class="ogiri-entry" id="ogiri-entry"></div>
+      </div>`;
+    app.appendChild(el);
+  }
+  return el;
+}
+
+function ogiriShowSection(section) {
+  // ボード下部のセクション（timer/scoring/result/ippon/failed）の表示を切り替える
+  for (const name of ['timer', 'scoring', 'result', 'ippon', 'failed']) {
+    document.getElementById('ogiri-' + name).style.display = (name === section) ? 'block' : 'none';
+  }
+}
+
+// 残り時間はサーバーが送るendsAt（終了予定時刻）とDate.now()の差から算出する。
+// こうすると再接続やタブ復帰のあとでも残り時間がずれない
+function startOgiriCountdown(endsAt, updateFn) {
+  if (!endsAt) return;
+  const tick = () => {
+    const remain = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
+    updateFn(remain);
+    if (remain <= 0 && ogiriCdInterval) { clearInterval(ogiriCdInterval); ogiriCdInterval = null; }
+  };
+  tick();
+  ogiriCdInterval = setInterval(tick, 250);
+}
+
+// 発動者（お題のきっかけになった視聴者）の表示。textContentなのでHTML注入の心配なし
+function ogiriUpdateEntry(entry) {
+  const el = document.getElementById('ogiri-entry');
+  if (!el) return;
+  if (entry && entry.nickname) {
+    el.textContent = '🎁 ' + entry.nickname + ' さんからのお題！';
+    el.style.display = 'block';
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+function ogiriUpdateImage(odai) {
+  // お題に画像が紐づいていれば表示（お題終了時はボードごと消えるので自動非表示）
+  const wrap = document.getElementById('ogiri-image-wrap');
+  if (!wrap) return;
+  if (odai && odai.imageUrl && ogiriRowOn('image')) {
+    document.getElementById('ogiri-image').src = absUrl(odai.imageUrl);
+    wrap.style.display = 'block';
+  } else {
+    wrap.style.display = 'none';
+  }
+}
+
+// isSnapshot=true は再接続直後の状態復元。画面は復元するが、音声は再生しない（二重再生防止）
+function handleOgiriState(data, isSnapshot) {
+  const el = ensureOgiriEl();
+  if (data.matrix) ogiriMatrix = data.matrix;
+  const telopOn = ogiriRowOn('telop'); // テロップOFFならボード自体を出さない（音声・採点は独立に判定）
+  if (ogiriCdInterval) { clearInterval(ogiriCdInterval); ogiriCdInterval = null; }
+  if (data.odai !== undefined) ogiriUpdateImage(data.odai);
+  ogiriUpdateEntry(data.entry);
+
+  if (data.state === 'INTRO' && data.odai) {
+    // お題テロップ表示＋読み上げ音声＋お題専用音源の再生
+    document.getElementById('ogiri-text').textContent = data.odai.text;
+    ogiriShowSection(null);
+    el.style.display = telopOn ? 'block' : 'none';
+    if (!isSnapshot && data.voiceUrl && ogiriRowOn('voice')) {
+      ogiriAudio = new Audio(absUrl(data.voiceUrl));
+      ogiriAudio.play().catch(e => console.log('お題読み上げの再生失敗（自動再生の許可を確認）:', e));
+    }
+    if (!isSnapshot && data.odaiSoundUrl && ogiriRowOn('sound')) {
+      new Audio(absUrl(data.odaiSoundUrl)).play().catch(e => console.log('お題専用音源の再生失敗:', e));
+    }
+  } else if (data.state === 'ANSWERING') {
+    // 回答時間のカウントダウン表示（endsAt基準なので再接続後も正しい残り時間になる）
+    if (data.odai) document.getElementById('ogiri-text').textContent = data.odai.text;
+    el.style.display = telopOn ? 'block' : 'none';
+    ogiriShowSection('timer');
+    const numEl = document.getElementById('ogiri-timer-num');
+    startOgiriCountdown(data.endsAt, (remain) => {
+      numEl.textContent = remain;
+      numEl.style.color = remain <= 5 ? '#ff4444' : '#f5d76e';
+    });
+  } else if (data.state === 'SCORING') {
+    // 採点タイム：残り時間と現在の合計点
+    if (data.odai) document.getElementById('ogiri-text').textContent = data.odai.text;
+    el.style.display = telopOn ? 'block' : 'none';
+    ogiriShowSection('scoring');
+    document.getElementById('ogiri-score-num').textContent = (data.score != null ? data.score : data.total) || 0;
+    const cdEl = document.getElementById('ogiri-scoring-cd');
+    startOgiriCountdown(data.endsAt, (remain) => {
+      cdEl.textContent = 'あと' + remain + '秒';
+    });
+  } else if (data.state === 'IPPON') {
+    // IPPON！基準点到達
+    el.style.display = telopOn ? 'block' : 'none';
+    ogiriShowSection('ippon');
+    document.getElementById('ogiri-ippon-sub').textContent = (data.total != null ? data.total : data.score || 0) + '点獲得！';
+    if (!isSnapshot && data.ipponSoundUrl && ogiriRowOn('ipponSound')) {
+      new Audio(absUrl(data.ipponSoundUrl)).play().catch(e => console.log('IPPON効果音の再生失敗:', e));
+    }
+  } else if (data.state === 'FAILED_RESULT') {
+    // 基準点に届かず時間切れ
+    el.style.display = telopOn ? 'block' : 'none';
+    ogiriShowSection('failed');
+    document.getElementById('ogiri-failed-sub').textContent = (data.total != null ? data.total : data.score || 0) + '点どまり… また挑戦してね！';
+    if (!isSnapshot && data.failedSoundUrl && ogiriRowOn('failedSound')) {
+      new Audio(absUrl(data.failedSoundUrl)).play().catch(e => console.log('失敗効果音の再生失敗:', e));
+    }
+  } else if (data.state === 'RESULT') {
+    // 結果発表：合計点＋効果音（旧方式との互換用に残置）
+    el.style.display = telopOn ? 'block' : 'none';
+    ogiriShowSection('result');
+    document.getElementById('ogiri-result-num').textContent = data.total || 0;
+    if (!isSnapshot && data.resultSoundUrl && ogiriRowOn('resultSound')) {
+      new Audio(absUrl(data.resultSoundUrl)).play().catch(e => console.log('結果発表効果音の再生失敗:', e));
+    }
+  } else {
+    // COOLDOWN / IDLE：テロップを消す
+    el.style.display = 'none';
+  }
+}
+
+function handleOgiriScore(data) {
+  // 採点タイム中のリアルタイム加点表示
+  const el = document.getElementById('ogiri-score-num');
+  if (el) el.textContent = data.total;
+}
+
+function updateRankingPanel(data, cfg) {
   let panel = document.getElementById('ranking-panel');
   if (!panel) {
     panel = document.createElement('div');
@@ -487,11 +726,20 @@ function updateRankingPanel(data) {
     panel.className = 'ranking-panel';
     document.getElementById('app').appendChild(panel);
   }
+  // 位置設定（管理画面のX/Y%指定）。未設定なら従来どおり右端中央
+  if (cfg && cfg.position) {
+    panel.style.left = cfg.position.x + '%';
+    panel.style.top = cfg.position.y + '%';
+    panel.style.right = 'auto';
+    panel.style.transform = 'translate(-50%,-50%)';
+  }
+  // 0件になったら（リセット時）パネルごと消す
+  if (!data || data.length === 0) { panel.remove(); return; }
   const medals = ['gold', 'silver', 'bronze'];
   const rows = data.map((item, i) => `
     <div class="ranking-item">
       <div class="ranking-rank ${medals[i] || ''}">${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}</div>
-      <div class="ranking-name">${item.nickname}</div>
+      <div class="ranking-name">${esc(item.nickname)}</div>
       <div class="ranking-score">💎${item.diamonds}<br>🎁${item.count}</div>
     </div>
   `).join('');
@@ -529,7 +777,13 @@ function connectWS() {
         case 'hora2':   showAudioEffect('📣','名前の呼びかけ','#ff8844','hora2'); break;
         case 'oldies':  showAudioEffect('🎵','オールディーズ','#aa44ff','oldies');break;
         case 'keikoku': showKeikoku(data.text, data.rarity); break;
-        case 'ranking': updateRankingPanel(data.data); break;
+        case 'ranking':
+          if (ogiriRowOn('ranking')) updateRankingPanel(data.data, data.cfg);
+          else { const rp = document.getElementById('ranking-panel'); if (rp) rp.remove(); }
+          break;
+        case 'ogiri-state': handleOgiriState(data, false); break;
+        case 'ogiri-snapshot': handleOgiriState(data, true); break;
+        case 'ogiri-score': handleOgiriScore(data); break;
       }
     };
 
