@@ -617,6 +617,21 @@ function startOgiriCountdown(endsAt, updateFn) {
   ogiriCdInterval = setInterval(tick, 250);
 }
 
+// 音声の再生。ngrok経由だとAudio要素の直接読み込みは警告ページに阻まれるため、
+// fetch（警告スキップ用ヘッダ付き）で取得してから再生する
+async function playOgiriAudio(url, label) {
+  if (!url) return;
+  try {
+    const res = await fetch(absUrl(url), { headers: { 'ngrok-skip-browser-warning': 'true' } });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const blob = await res.blob();
+    const audio = new Audio(URL.createObjectURL(blob));
+    audio.play().catch(e => console.log(label + 'の再生失敗（自動再生の許可を確認）:', e));
+  } catch (e) {
+    console.log(label + 'の取得失敗:', e.message);
+  }
+}
+
 // 発動者（お題のきっかけになった視聴者）の表示。textContentなのでHTML注入の心配なし
 function ogiriUpdateEntry(entry) {
   const el = document.getElementById('ogiri-entry');
@@ -656,11 +671,10 @@ function handleOgiriState(data, isSnapshot) {
     ogiriShowSection(null);
     el.style.display = telopOn ? 'block' : 'none';
     if (!isSnapshot && data.voiceUrl && ogiriRowOn('voice')) {
-      ogiriAudio = new Audio(absUrl(data.voiceUrl));
-      ogiriAudio.play().catch(e => console.log('お題読み上げの再生失敗（自動再生の許可を確認）:', e));
+      playOgiriAudio(data.voiceUrl, 'お題読み上げ');
     }
     if (!isSnapshot && data.odaiSoundUrl && ogiriRowOn('sound')) {
-      new Audio(absUrl(data.odaiSoundUrl)).play().catch(e => console.log('お題専用音源の再生失敗:', e));
+      playOgiriAudio(data.odaiSoundUrl, 'お題専用音源');
     }
   } else if (data.state === 'ANSWERING') {
     // 回答時間のカウントダウン表示（endsAt基準なので再接続後も正しい残り時間になる）
@@ -688,7 +702,7 @@ function handleOgiriState(data, isSnapshot) {
     ogiriShowSection('ippon');
     document.getElementById('ogiri-ippon-sub').textContent = (data.total != null ? data.total : data.score || 0) + '点獲得！';
     if (!isSnapshot && data.ipponSoundUrl && ogiriRowOn('ipponSound')) {
-      new Audio(absUrl(data.ipponSoundUrl)).play().catch(e => console.log('IPPON効果音の再生失敗:', e));
+      playOgiriAudio(data.ipponSoundUrl, 'IPPON効果音');
     }
   } else if (data.state === 'FAILED_RESULT') {
     // 基準点に届かず時間切れ
@@ -696,7 +710,7 @@ function handleOgiriState(data, isSnapshot) {
     ogiriShowSection('failed');
     document.getElementById('ogiri-failed-sub').textContent = (data.total != null ? data.total : data.score || 0) + '点どまり… また挑戦してね！';
     if (!isSnapshot && data.failedSoundUrl && ogiriRowOn('failedSound')) {
-      new Audio(absUrl(data.failedSoundUrl)).play().catch(e => console.log('失敗効果音の再生失敗:', e));
+      playOgiriAudio(data.failedSoundUrl, '失敗効果音');
     }
   } else if (data.state === 'RESULT') {
     // 結果発表：合計点＋効果音（旧方式との互換用に残置）
@@ -704,7 +718,7 @@ function handleOgiriState(data, isSnapshot) {
     ogiriShowSection('result');
     document.getElementById('ogiri-result-num').textContent = data.total || 0;
     if (!isSnapshot && data.resultSoundUrl && ogiriRowOn('resultSound')) {
-      new Audio(absUrl(data.resultSoundUrl)).play().catch(e => console.log('結果発表効果音の再生失敗:', e));
+      playOgiriAudio(data.resultSoundUrl, '結果発表効果音');
     }
   } else {
     // COOLDOWN / IDLE：テロップを消す
