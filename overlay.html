@@ -670,6 +670,9 @@ function handleOgiriState(data, isSnapshot) {
     document.getElementById('ogiri-text').textContent = data.odai.text;
     ogiriShowSection(null);
     el.style.display = telopOn ? 'block' : 'none';
+    if (!isSnapshot && data.startSoundUrl && ogiriRowOn('telopSound')) {
+      playOgiriAudio(data.startSoundUrl, 'お題開始効果音');
+    }
     if (!isSnapshot && data.voiceUrl && ogiriRowOn('voice')) {
       playOgiriAudio(data.voiceUrl, 'お題読み上げ');
     }
