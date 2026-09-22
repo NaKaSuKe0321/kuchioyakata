@@ -735,6 +735,25 @@ function handleOgiriScore(data) {
   if (el) el.textContent = data.total;
 }
 
+// 管理画面で追加した演出（extra_image_1 / extra_sound_1 など）を表示する。
+// 固定の演出とちがって名前が決まっていないので、届いた設定をそのまま使う
+function showExtraEffect(key, cfg) {
+  const color = cfg.color || '#ffd700';
+  const label = cfg.label || key;
+  const dur = Math.min(30, Math.max(1, cfg.duration || 5));
+  effectConfig[key] = cfg; // 位置などを最新の設定に更新してから表示する
+  if (cfg.imageUrl && (cfg.type === 'image' || cfg.showImage)) {
+    const w = createWrap(key);
+    w.innerHTML = `<div>
+      <img src="${absUrl(cfg.imageUrl)}" style="display:block;width:${cfg.size || 210}px;border-radius:10px;">
+      <div class="countdown" style="margin-top:8px;" id="ex-cd"></div>
+    </div>`;
+    startCountdown(dur, document.getElementById('ex-cd'));
+  } else {
+    showAudioEffect(cfg.icon || '🔊', label, color, key);
+  }
+}
+
 // ============================================================
 // パターンD：シンプル演出（フォロー・ギフト・キーワード・いいね・コメント欄）
 // ============================================================
@@ -757,11 +776,22 @@ function pdEnsureLayer() {
   return el;
 }
 
-// 音声・動画はngrok経由だと直接読み込めないため、fetchで取得してから再生する
+// 音声・動画はngrok経由だと直接読み込めないため、fetchで取得してから再生する。
+// 同じファイルは使い回してメモリの無駄遣いを防ぐ（長時間配信でいいね音が積み上がるのを防止）
+const pdMediaCache = new Map();
 async function pdFetchMediaUrl(url) {
+  if (pdMediaCache.has(url)) return pdMediaCache.get(url);
   const res = await fetch(absUrl(url), { headers: { 'ngrok-skip-browser-warning': 'true' } });
   if (!res.ok) throw new Error('HTTP ' + res.status);
-  return URL.createObjectURL(await res.blob());
+  const objectUrl = URL.createObjectURL(await res.blob());
+  // 種類が増えすぎたら古いものを解放する
+  if (pdMediaCache.size >= 30) {
+    const oldestKey = pdMediaCache.keys().next().value;
+    URL.revokeObjectURL(pdMediaCache.get(oldestKey));
+    pdMediaCache.delete(oldestKey);
+  }
+  pdMediaCache.set(url, objectUrl);
+  return objectUrl;
 }
 
 function pdShowEffect(data) {
@@ -927,6 +957,11 @@ function connectWS() {
         case 'ogiri-state': handleOgiriState(data, false); break;
         case 'ogiri-snapshot': handleOgiriState(data, true); break;
         case 'ogiri-score': handleOgiriScore(data); break;
+        default:
+          // 管理画面で追加した演出（extra_image_1 など）は決まった名前を持たないため、
+          // サーバーから届いた設定をそのまま使って表示する
+          if (data.effectConfig) showExtraEffect(data.effect, data.effectConfig);
+          break;
       }
     };
 
