@@ -625,8 +625,13 @@ async function playOgiriAudio(url, label) {
     const res = await fetch(absUrl(url), { headers: { 'ngrok-skip-browser-warning': 'true' } });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const blob = await res.blob();
-    const audio = new Audio(URL.createObjectURL(blob));
-    audio.play().catch(e => console.log(label + 'の再生失敗（自動再生の許可を確認）:', e));
+    // お題の読み上げは毎回違うファイルなので、再生し終えたらメモリを解放する
+    const objectUrl = URL.createObjectURL(blob);
+    const audio = new Audio(objectUrl);
+    const release = () => URL.revokeObjectURL(objectUrl);
+    audio.onended = release;
+    audio.onerror = release;
+    audio.play().catch(e => { release(); console.log(label + 'の再生失敗（自動再生の許可を確認）:', e); });
   } catch (e) {
     console.log(label + 'の取得失敗:', e.message);
   }
@@ -778,20 +783,28 @@ function pdEnsureLayer() {
 
 // 音声・動画はngrok経由だと直接読み込めないため、fetchで取得してから再生する。
 // 同じファイルは使い回してメモリの無駄遣いを防ぐ（長時間配信でいいね音が積み上がるのを防止）
-const pdMediaCache = new Map();
+// 取得中のものも記録しておき、同じ素材を同時に要求されても1回しか取得しないようにする
+const pdMediaCache = new Map(); // url → 取得処理（Promise）
 async function pdFetchMediaUrl(url) {
   if (pdMediaCache.has(url)) return pdMediaCache.get(url);
-  const res = await fetch(absUrl(url), { headers: { 'ngrok-skip-browser-warning': 'true' } });
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  const objectUrl = URL.createObjectURL(await res.blob());
+
+  const task = (async () => {
+    const res = await fetch(absUrl(url), { headers: { 'ngrok-skip-browser-warning': 'true' } });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return URL.createObjectURL(await res.blob());
+  })();
+
   // 種類が増えすぎたら古いものを解放する
   if (pdMediaCache.size >= 30) {
     const oldestKey = pdMediaCache.keys().next().value;
-    URL.revokeObjectURL(pdMediaCache.get(oldestKey));
+    const oldTask = pdMediaCache.get(oldestKey);
     pdMediaCache.delete(oldestKey);
+    Promise.resolve(oldTask).then(u => URL.revokeObjectURL(u)).catch(() => {});
   }
-  pdMediaCache.set(url, objectUrl);
-  return objectUrl;
+  pdMediaCache.set(url, task);
+  // 取得に失敗したら記録を消して、次回やり直せるようにする
+  task.catch(() => pdMediaCache.delete(url));
+  return task;
 }
 
 function pdShowEffect(data) {
