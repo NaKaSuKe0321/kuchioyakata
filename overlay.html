@@ -812,7 +812,7 @@ function pdShowEffect(data) {
   const layer = pdEnsureLayer();
   const p = data.position || { x: 50, y: 40 };
   const box = document.createElement('div');
-  box.style.cssText = `position:absolute;left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%);text-align:center;`;
+  box.style.cssText = `position:absolute;left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%);text-align:center;max-width:92vw;`;
   layer.appendChild(box);
 
   // 画像（枠・ベースなし）
@@ -826,7 +826,8 @@ function pdShowEffect(data) {
   if (data.message) {
     const label = document.createElement('div');
     label.textContent = String(data.message).replace('{name}', data.viewer || '');
-    label.style.cssText = 'margin-top:8px;font-size:32px;font-weight:900;color:#fff;text-shadow:0 0 12px rgba(0,0,0,0.9),0 2px 6px rgba(0,0,0,0.9);white-space:nowrap;';
+    // 画面端に寄せても切れないよう、必要なら折り返す
+    label.style.cssText = 'margin-top:8px;font-size:32px;font-weight:900;color:#fff;text-shadow:0 0 12px rgba(0,0,0,0.9),0 2px 6px rgba(0,0,0,0.9);max-width:90vw;overflow-wrap:anywhere;';
     box.appendChild(label);
   }
   // 動画（枠なし。再生し終わったら自動で消える）
@@ -849,7 +850,24 @@ function pdShowEffect(data) {
   }
 
   // 指定時間で画像・テロップを消す（動画は再生終了時に自分で消える）
+  keepInsideScreen(box);
   setTimeout(() => box.remove(), (data.seconds || 5) * 1000);
+}
+
+// 画面の端に近い位置を指定しても、演出がはみ出して切れないように押し戻す。
+// 画像や動画は読み込み後に大きさが変わるので、少し間を置いてもう一度確認する
+function keepInsideScreen(box) {
+  const adjust = () => {
+    box.style.marginLeft = '0px';
+    const r = box.getBoundingClientRect();
+    const margin = 12; // 画面端との最低すき間
+    let shift = 0;
+    if (r.left < margin) shift = margin - r.left;
+    else if (r.right > window.innerWidth - margin) shift = (window.innerWidth - margin) - r.right;
+    if (shift) box.style.marginLeft = shift + 'px';
+  };
+  requestAnimationFrame(adjust);
+  setTimeout(adjust, 400);
 }
 
 // いいね音：順番待ちせず、押されたタイミングでそのまま再生（重ねてOK）
