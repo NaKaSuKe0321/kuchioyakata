@@ -617,6 +617,13 @@ function startOgiriCountdown(endsAt, updateFn) {
   ogiriCdInterval = setInterval(tick, 250);
 }
 
+// 演出音源の音量（管理画面の「演出音の音量」。0〜1の範囲）
+let effectVolume = 1;
+function applyEffectVolume(audio) {
+  audio.volume = Math.min(1, Math.max(0, effectVolume));
+  return audio;
+}
+
 // 音声の再生。ngrok経由だとAudio要素の直接読み込みは警告ページに阻まれるため、
 // fetch（警告スキップ用ヘッダ付き）で取得してから再生する
 async function playOgiriAudio(url, label) {
@@ -627,7 +634,7 @@ async function playOgiriAudio(url, label) {
     const blob = await res.blob();
     // お題の読み上げは毎回違うファイルなので、再生し終えたらメモリを解放する
     const objectUrl = URL.createObjectURL(blob);
-    const audio = new Audio(objectUrl);
+    const audio = applyEffectVolume(new Audio(objectUrl));
     const release = () => URL.revokeObjectURL(objectUrl);
     audio.onended = release;
     audio.onerror = release;
@@ -845,7 +852,7 @@ function pdShowEffect(data) {
   // 音源
   if (data.soundUrl) {
     pdFetchMediaUrl(data.soundUrl)
-      .then(src => new Audio(src).play().catch(e => console.log('音源の再生失敗:', e)))
+      .then(src => applyEffectVolume(new Audio(src)).play().catch(e => console.log('音源の再生失敗:', e)))
       .catch(e => console.log('音源の取得失敗:', e.message));
   }
 
@@ -876,7 +883,7 @@ function pdPlayLike(data) {
   if (pdLikePlaying >= PD_LIKE_MAX) return;
   pdLikePlaying++;
   pdFetchMediaUrl(data.soundUrl).then(src => {
-    const a = new Audio(src);
+    const a = applyEffectVolume(new Audio(src));
     a.onended = a.onerror = () => { pdLikePlaying = Math.max(0, pdLikePlaying - 1); };
     a.play().catch(e => { pdLikePlaying = Math.max(0, pdLikePlaying - 1); console.log('いいね音の再生失敗:', e); });
   }).catch(e => { pdLikePlaying = Math.max(0, pdLikePlaying - 1); console.log('いいね音の取得失敗:', e.message); });
@@ -967,6 +974,17 @@ function connectWS() {
           addChat(data.user, data.text, correct);
         }
         pdUpdateFeed(data); // パターンDのコメント欄表示（feed設定が付いているときだけ描画）
+        return;
+      }
+
+      // サーバーから届いた演出音の音量を反映（管理画面で変えたら次の演出から効く）
+      if (typeof data.effectVolume === 'number') effectVolume = data.effectVolume;
+
+      // コメント読み上げ（ブラウザ再生方式のときにサーバーから届く）
+      if (data.effect === 'comment-tts') {
+        if (!data.targets || data.targets.overlay !== false) {
+          playOgiriAudio(data.voiceUrl, 'コメント読み上げ');
+        }
         return;
       }
 
