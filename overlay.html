@@ -957,15 +957,35 @@ function updateRankingPanel(data, cfg) {
 // ============================================================
 // WebSocket接続（ngrok経由 wss）
 // ============================================================
+// 接続の見張り: サーバーは15秒ごとに合図(heartbeat)を送ってくる。
+// 45秒以上なにも届かなければ、接続が見かけだけ残って実は切れているとみなし、自分から繋ぎ直す
+const WS_SILENT_LIMIT_MS = 45000;
+let currentWs = null;
+let lastMessageAt = Date.now();
+setInterval(() => {
+  if (currentWs && currentWs.readyState === WebSocket.OPEN && Date.now() - lastMessageAt > WS_SILENT_LIMIT_MS) {
+    console.log('サーバーから45秒以上なにも届かないため、接続し直します');
+    const old = currentWs;
+    currentWs = null;
+    old.onclose = null; // 古い接続の「切れたら繋ぎ直す」処理と二重にならないようにする
+    try { old.close(); } catch(e) {}
+    connectWS();
+  }
+}, 5000);
+
 function connectWS() {
   let ws;
   try {
     ws = new WebSocket(SERVER_WSS);
+    currentWs = ws;
+    lastMessageAt = Date.now();
 
-    ws.onopen = () => console.log('WebSocket接続OK:', SERVER_WSS);
+    ws.onopen = () => { lastMessageAt = Date.now(); console.log('WebSocket接続OK:', SERVER_WSS); };
 
     ws.onmessage = (e) => {
+      lastMessageAt = Date.now();
       const data = JSON.parse(e.data);
+      if (data.type === 'heartbeat') return; // 見張り用の合図なので何もしない
 
       // チャット（クイズ回答用）
       if (data.type === 'chat') {
