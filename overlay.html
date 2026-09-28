@@ -621,7 +621,14 @@ function startOgiriCountdown(endsAt, updateFn) {
 let effectVolume = 1;
 function applyEffectVolume(audio) {
   audio.volume = Math.min(1, Math.max(0, effectVolume));
-  return audio;
+  return applyMute(audio);
+}
+
+// この画面で音を鳴らすか（管理画面の「音を鳴らす画面」。サーバーから届くデータに毎回添えられてくる）
+let soundOn = true;
+function applyMute(media) {
+  media.muted = !soundOn;
+  return media;
 }
 
 // 音声の再生。ngrok経由だとAudio要素の直接読み込みは警告ページに阻まれるため、
@@ -841,6 +848,7 @@ function pdShowEffect(data) {
   if (data.videoUrl) {
     pdFetchMediaUrl(data.videoUrl).then(src => {
       const v = document.createElement('video');
+      applyEffectVolume(v); // 動画の音も演出音の音量・ミュートに合わせる
       v.src = src;
       v.autoplay = true;
       v.style.cssText = 'display:block;margin:8px auto 0;max-width:45vw;max-height:45vh;';
@@ -985,6 +993,7 @@ function connectWS() {
     ws.onmessage = (e) => {
       lastMessageAt = Date.now();
       const data = JSON.parse(e.data);
+      if (data.soundOn && typeof data.soundOn.overlay === 'boolean') soundOn = data.soundOn.overlay;
       if (data.type === 'heartbeat') return; // 見張り用の合図なので何もしない
 
       // チャット（クイズ回答用）
