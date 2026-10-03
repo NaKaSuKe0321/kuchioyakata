@@ -5,8 +5,11 @@
   <meta name="ngrok-skip-browser-warning" content="true">
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
+    /* ページの大きさは、読み込んだ画面（Live Studio・OBS のリンク／ブラウザの大きさ）に合わせる。
+       以前は横長 1920×1080 に固定していたが、縦型（1080×1920）で読み込むと右にはみ出してスクロールバーが出るおそれがあった */
+    html { overflow:hidden; }
     body {
-      width:1920px; height:1080px;
+      width:100vw; height:100vh;
       background:transparent;
       overflow:hidden;
       font-family:'Hiragino Kaku Gothic ProN','Meiryo',sans-serif;
