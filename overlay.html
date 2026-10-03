@@ -1136,6 +1136,176 @@ function pdFeedItem(data, cfg, fontPx, color) {
   return item;
 }
 
+// ------------------------------------------------------------
+// ギフト演出の一覧（「どのギフトで何が起きるか」）。出す・消すの時間はサーバーが決めて送ってくる。
+// target: この画面の種類（'overlay' / 'display'）、u: 大きさの単位に直す関数（この画面は px）
+// ギフトの画像は TikTok のサーバーから直接読む（ngrokを通らないので通信量の上限に影響しない）
+// ------------------------------------------------------------
+function renderGiftMenu(data, target, u) {
+  let el = document.getElementById('gift-menu');
+  const items = (data.items || []).slice(0, 15);
+  const special = data.special || [];
+  const forMe = !data.targets || data.targets[target] !== false;
+  if (!data.visible || !forMe || (items.length === 0 && special.length === 0)) {
+    if (el) {
+      el.style.opacity = '0';
+      setTimeout(() => { if (el.style.opacity === '0') el.remove(); }, 600);
+    }
+    return;
+  }
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'gift-menu';
+    el.style.cssText = 'position:fixed;z-index:105;transform:translate(-50%,-50%);transition:opacity .5s;opacity:0;pointer-events:none;';
+    (document.getElementById('app') || document.body).appendChild(el);
+    requestAnimationFrame(() => requestAnimationFrame(() => { el.style.opacity = '1'; }));
+  } else {
+    el.style.opacity = '1';
+  }
+  const p = data.position || { x: 82, y: 45 };
+  el.style.left = Math.min(100, Math.max(0, p.x)) + '%';
+  el.style.top = Math.min(100, Math.max(0, p.y)) + '%';
+  const s = Math.min(2.5, Math.max(0.5, data.scale || 1));
+  const row = it => `<div style="display:flex;align-items:center;gap:${u(10 * s)};padding:${u(4 * s)} 0;">`
+    + (it.image
+      ? `<img src="${esc(it.image)}" referrerpolicy="no-referrer" style="width:${u(42 * s)};height:${u(42 * s)};object-fit:contain;flex:none;">`
+      : `<div style="width:${u(42 * s)};flex:none;text-align:center;font-size:${u(28 * s)};">🎁</div>`)
+    + `<div style="min-width:0;">`
+    + `<div style="color:#fff;font-weight:800;font-size:${u(17 * s)};white-space:nowrap;">${esc(it.label)}`
+    + (it.coins != null ? ` <span style="color:#ffd700;font-size:${u(13 * s)};">🪙${esc(it.coins)}</span>` : '') + `</div>`
+    + `<div style="color:#9fe7ff;font-size:${u(14 * s)};">→ ${esc(it.text)}</div>`
+    + `</div></div>`;
+  el.innerHTML = `<div style="background:rgba(10,14,30,0.85);border:${u(2)} solid rgba(255,215,0,0.6);border-radius:${u(14 * s)};`
+    + `padding:${u(12 * s)} ${u(16 * s)};min-width:${u(220 * s)};max-width:${u(440 * s)};box-shadow:0 0 ${u(24)} rgba(0,0,0,0.5);">`
+    + (data.title ? `<div style="color:#ffd700;font-weight:900;font-size:${u(20 * s)};margin-bottom:${u(6 * s)};text-align:center;">${esc(data.title)}</div>` : '')
+    + special.map(sp => row({ label: sp.label, text: sp.text, image: '', coins: null })).join('')
+    + items.map(row).join('')
+    + (data.notes || []).map(n => `<div style="color:#ffd700;font-size:${u(13 * s)};margin-top:${u(6 * s)};">✨ ${esc(n)}</div>`).join('')
+    + `</div>`;
+}
+
+// ------------------------------------------------------------
+// ギフトの画像が流れる演出。target: この画面の種類、k: 大きさの倍率（1920px幅の画面を1とする）
+//  nico: 範囲の中を右から左へ横切る（名前と「×個数」つき）。重ならないよう車線を選ぶ
+//  rain: 画面の上から降ってくる（個数ぶん。上限あり）
+// ------------------------------------------------------------
+const giftFlowState = { key: '', lanes: [] };
+const GIFT_FLOW_LEVEL_SCALE = [1, 1.5, 2, 3]; // 高いギフトほど大きく（サーバーが段階を決める）
+
+function renderGiftFlow(data, target, k, attempt) {
+  if (!data.image || (data.targets && data.targets[target] === false)) return;
+  attempt = attempt || 0;
+  const s = (data.scale || 1) * (GIFT_FLOW_LEVEL_SCALE[data.level | 0] || 1) * k;
+  const base = 64 * (data.scale || 1) * k;           // 普通の大きさの画像（1車線の高さの基準）
+  const size = Math.round(64 * s);
+  const count = Math.max(1, data.count | 0);
+  const caption = (data.nickname ? data.nickname : '') + (count > 1 ? ` ×${count}` : '');
+  const outline = 'text-shadow:2px 2px 0 #000,-2px -2px 0 #000,2px -2px 0 #000,-2px 2px 0 #000,0 2px 0 #000,0 -2px 0 #000,2px 0 0 #000,-2px 0 0 #000;';
+  const host = document.getElementById('app') || document.body;
+  const done = (el, anim) => { anim.onfinish = () => el.remove(); setTimeout(() => el.remove(), anim.effect.getTiming().duration + (anim.effect.getTiming().delay || 0) + 1000); };
+
+  if (data.style === 'rain') {
+    let layer = document.getElementById('gift-rain');
+    if (!layer) {
+      layer = document.createElement('div');
+      layer.id = 'gift-rain';
+      layer.style.cssText = 'position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:108;';
+      host.appendChild(layer);
+    }
+    const H = layer.clientHeight, W = layer.clientWidth;
+    const n = Math.min(count, data.maxImages || 10);
+    while (layer.children.length + n > 60) layer.removeChild(layer.firstChild); // 降らせすぎない
+    for (let i = 0; i < n; i++) {
+      const img = document.createElement('img');
+      img.src = data.image;
+      img.referrerPolicy = 'no-referrer';
+      const x = Math.round(W * (0.05 + Math.random() * 0.9) - size / 2);
+      img.style.cssText = `position:absolute;left:${x}px;top:0;width:${size}px;height:${size}px;object-fit:contain;`;
+      layer.appendChild(img);
+      const rot = (Math.random() * 60 - 30).toFixed(0);
+      const dur = (data.seconds || 7) * 1000 * (0.8 + Math.random() * 0.4);
+      done(img, img.animate(
+        [{ transform: `translateY(${-size}px) rotate(0deg)` }, { transform: `translateY(${H + size}px) rotate(${rot}deg)` }],
+        { duration: dur, delay: i * 150, easing: 'ease-in', fill: 'both' }));
+    }
+    // 名前は上の真ん中に少しだけ出す
+    if (caption) {
+      const cap = document.createElement('div');
+      cap.textContent = caption;
+      cap.style.cssText = `position:absolute;left:50%;top:${Math.round(H * 0.06)}px;transform:translateX(-50%);white-space:nowrap;`
+        + `color:#ffd700;font-weight:900;font-size:${Math.round(26 * k * (data.scale || 1))}px;${outline}`;
+      layer.appendChild(cap);
+      done(cap, cap.animate([{ opacity: 0 }, { opacity: 1, offset: 0.1 }, { opacity: 1, offset: 0.8 }, { opacity: 0 }], { duration: 3000 }));
+    }
+    return;
+  }
+
+  // nico：範囲の中を右から左へ横切る
+  const key = [data.areaTop, data.areaHeight].join('/');
+  let layer = document.getElementById('gift-flow');
+  if (!layer || giftFlowState.key !== key) {
+    if (layer) layer.remove();
+    layer = document.createElement('div');
+    layer.id = 'gift-flow';
+    layer.style.cssText = `position:fixed;left:0;width:100%;top:${data.areaTop}%;height:${data.areaHeight}%;overflow:hidden;pointer-events:none;z-index:108;`;
+    host.appendChild(layer);
+    giftFlowState.key = key;
+    giftFlowState.lanes = [];
+  }
+  while (layer.children.length >= 40) layer.removeChild(layer.firstChild);
+  const item = document.createElement('div');
+  item.style.cssText = `position:absolute;left:0;top:0;visibility:hidden;display:flex;align-items:center;gap:${Math.round(8 * k)}px;white-space:nowrap;`;
+  const img = document.createElement('img');
+  img.src = data.image;
+  img.referrerPolicy = 'no-referrer';
+  img.style.cssText = `width:${size}px;height:${size}px;object-fit:contain;flex:none;`;
+  item.appendChild(img);
+  if (caption) {
+    const t = document.createElement('span');
+    t.textContent = caption; // 外部由来の文字列なので textContent で入れる
+    t.style.cssText = `color:#ffd700;font-weight:900;font-size:${Math.round(size * 0.42)}px;${outline}`;
+    item.appendChild(t);
+  }
+  layer.appendChild(item);
+  const iw = item.offsetWidth, ih = Math.max(item.offsetHeight, size);
+  const areaW = layer.clientWidth, areaH = layer.clientHeight;
+  const box = layer.getBoundingClientRect();
+  const dur = (data.seconds || 7) * 1000;
+  const v = (areaW + iw) / dur;
+  const gap = Math.round(24 * k);
+  const laneH = Math.round(base + 8 * k);
+  const laneCount = Math.max(1, Math.floor(areaH / laneH));
+  const span = Math.min(laneCount, Math.max(1, Math.ceil(ih / laneH)));
+  const laneState = j => {
+    const last = giftFlowState.lanes[j];
+    if (!last || !last.el.isConnected) return { free: true, room: Infinity };
+    const tail = last.el.getBoundingClientRect().right - box.left;
+    const room = areaW - gap - tail;
+    const noCatch = v <= last.v || (areaW / v) >= (tail / last.v);
+    return { free: room >= 0 && noCatch, room };
+  };
+  let lane = -1, bestLane = 0, bestRoom = -Infinity;
+  for (let i = 0; i + span <= laneCount; i++) {
+    let free = true, room = Infinity;
+    for (let j = i; j < i + span; j++) { const st = laneState(j); if (!st.free) free = false; room = Math.min(room, st.room); }
+    if (free) { lane = i; break; }
+    if (room > bestRoom) { bestRoom = room; bestLane = i; }
+  }
+  // 空きが無いときは、少し待ってからやり直す（ギフトは1つ1つが大事なので、重ねずに順番を待つ）。
+  // 0.4秒ごとに10回（4秒）待っても空かなければ、いちばん空いている所に重ねて流す
+  if (lane === -1 && attempt < 10) {
+    item.remove();
+    setTimeout(() => renderGiftFlow(data, target, k, attempt + 1), 400);
+    return;
+  }
+  if (lane === -1) lane = bestLane;
+  for (let j = lane; j < lane + span; j++) giftFlowState.lanes[j] = { el: item, v };
+  item.style.top = (lane * laneH) + 'px';
+  item.style.visibility = 'visible';
+  done(item, item.animate([{ transform: `translateX(${areaW}px)` }, { transform: `translateX(${-iw}px)` }],
+    { duration: dur, easing: 'linear', fill: 'forwards' }));
+}
+
 // 業務警報・パターンAの演出・大喜利テロップの効果音（管理画面で「画面で鳴らす」にしたときに届く）
 // 同じ音は何度も鳴るので、取得したものを使い回す
 function playPcSound(data) {
@@ -1251,6 +1421,8 @@ function connectWS() {
         case 'pd-effect': pdShowEffect(data); break;
         case 'pd-like':   pdPlayLike(data);   break;
         case 'pc-sound':  playPcSound(data);  break;
+        case 'gift-menu': renderGiftMenu(data, 'overlay', v => v + 'px'); break;
+        case 'gift-flow': renderGiftFlow(data, 'overlay', 1); break;
         case 'follow-counter': renderFollowCounter(data); break;
         case 'ogiri-state': handleOgiriState(data, false); break;
         case 'ogiri-snapshot': handleOgiriState(data, true); break;
