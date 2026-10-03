@@ -996,11 +996,13 @@ function pdFlowComment(data, cfg, style, basePx) {
   const topPct = Math.min(95, Math.max(0, p.y));
   const heightPct = Math.min(100 - topPct, Math.max(5, cfg.areaHeight || 40));
   const leftPct = Math.min(95, Math.max(0, p.x));
+  const widthPct = Math.min(100 - leftPct, Math.max(5, cfg.areaWidth || 30)); // 下から上へ流す範囲の幅
+  const vertical = style === 'rise' && cfg.writing === 'vertical';            // 縦書き（下から上へ流れるときだけ）
   const sec = Math.min(30, Math.max(2, cfg.flowSeconds || (style === 'nico' ? 8 : 6)));
   const scale = Math.min(3, Math.max(0.5, cfg.fontScale || 1));
 
   // 流れ方や範囲が変わったら、入れ物ごと作り直す（車線の記録も消す）
-  const key = [style, topPct, heightPct, leftPct].join('/');
+  const key = [style, topPct, heightPct, leftPct, widthPct, vertical].join('/');
   let layer = document.getElementById('pd-flow');
   if (!layer || pdFlowState.key !== key) {
     if (layer) layer.remove();
@@ -1008,7 +1010,7 @@ function pdFlowComment(data, cfg, style, basePx) {
     layer.id = 'pd-flow';
     layer.style.cssText = 'position:fixed;overflow:hidden;pointer-events:none;z-index:110;'
       + `top:${topPct}%;height:${heightPct}%;`
-      + (style === 'nico' ? 'left:0;width:100%;' : `left:${leftPct}%;width:30%;`);
+      + (style === 'nico' ? 'left:0;width:100%;' : `left:${leftPct}%;width:${widthPct}%;`);
     app.appendChild(layer);
     pdFlowState.key = key;
     pdFlowState.lanes = [];
@@ -1024,7 +1026,8 @@ function pdFlowComment(data, cfg, style, basePx) {
   item.style.left = '0';
   item.style.top = '0';
   item.style.visibility = 'hidden'; // 大きさを測るまで見せない
-  if (style === 'nico') item.style.whiteSpace = 'nowrap';
+  if (vertical) pdMakeVertical(item);              // 縦書き：長くても折り返さず縦1列
+  else if (style === 'nico') item.style.whiteSpace = 'nowrap';
   else item.style.maxWidth = '100%';
   layer.appendChild(item);
   const iw = item.offsetWidth, ih = item.offsetHeight;
@@ -1070,6 +1073,40 @@ function pdFlowComment(data, cfg, style, basePx) {
     anim = item.animate(
       [{ transform: `translateX(${areaW}px)` }, { transform: `translateX(${-iw}px)` }],
       { duration: dur, easing: 'linear', fill: 'forwards' });
+  } else if (vertical) {
+    // 縦書き：1件が縦1列。列を横に並べ、すべて同じ速さで下から上へ流す（同じ速さなので追いつくことはない）
+    const v = areaH / (sec * 1000);
+    // 列の幅は「普通の大きさのコメント」1件分（大きさのばらつきがONなら1.15倍のものが収まる幅）。大きなコメントは何列か使う
+    const laneW = pdBaseLaneWidthV(layer, cfg, basePx * scale * (cfg.randomOn === true ? 1.15 : 1));
+    const laneCount = Math.max(1, Math.floor(areaW / laneW));
+    const span = Math.min(laneCount, Math.max(1, Math.ceil((iw + 4) / laneW)));
+    // 列の空き具合：その列に最後に入ったコメントの、いまの下端の位置
+    const tailOf = j => {
+      const last = pdFlowState.lanes[j];
+      if (!last || !last.el.isConnected) return -Infinity;
+      return last.el.getBoundingClientRect().bottom - box.top;
+    };
+    // 縦書きは右から読むので、右の列から空きを探す。空き＝前のコメントの下端が範囲に入りきっていること
+    let lane = -1, bestLane = laneCount - span, bestTail = Infinity;
+    for (let i = laneCount - span; i >= 0; i--) {
+      let tail = -Infinity;
+      for (let j = i; j < i + span; j++) tail = Math.max(tail, tailOf(j));
+      if (tail <= areaH - gap) { lane = i; break; }
+      if (tail < bestTail) { bestTail = tail; bestLane = i; }
+    }
+    let startY = areaH;
+    // 空きが無ければ、いちばん早く空く列で、前のコメントのすぐ下（見えない所）から出発して順番待ちする
+    if (lane === -1) { lane = bestLane; startY = bestTail + gap; }
+    // 順番待ちが範囲1つ分を超えたら流さない（コメントが殺到したときに表示がどんどん遅れるのを防ぐ）
+    if (startY > areaH * 2) { item.remove(); return; }
+    for (let j = lane; j < lane + span; j++) pdFlowState.lanes[j] = { el: item };
+    item.style.left = (lane * laneW) + 'px';
+    const dur = (startY + ih) / v;
+    anim = item.animate(
+      [{ transform: `translateY(${startY}px)`, opacity: 1 },
+       { transform: `translateY(${startY - (startY + ih) * 0.85}px)`, opacity: 1, offset: 0.85 },
+       { transform: `translateY(${-ih}px)`, opacity: 0 }],
+      { duration: dur, easing: 'linear', fill: 'forwards' });
   } else {
     // 範囲の下から上まで sec 秒で進む速さで、すべて同じ速さで流す。
     // 前のコメントがまだ下の方にいるときは、そのすぐ下（見えない所）から出発して順番待ちする
@@ -1093,6 +1130,31 @@ function pdFlowComment(data, cfg, style, basePx) {
   // 流れ終わったら消す。終わりの合図が届かない場合に備えて、時間でも必ず消す
   anim.onfinish = () => item.remove();
   setTimeout(() => item.remove(), anim.effect.getTiming().duration + 1000);
+}
+
+// コメント1件を縦書きにする。長くても折り返さず縦1列。英字・数字も1文字ずつ立てる（横に寝ないように）
+function pdMakeVertical(item) {
+  item.style.writingMode = 'vertical-rl';
+  item.style.textOrientation = 'upright';
+  item.style.whiteSpace = 'nowrap';
+  // 板（ベース）の内側の余白は、縦書きでは上下と左右を入れ替える
+  const pad = (item.style.padding || '').split(' ');
+  if (pad.length === 2) item.style.padding = `${pad[1]} ${pad[0]}`;
+  // 名前とコメントの間のすき間も、縦書きでは下側に付ける
+  const name = item.querySelector('span');
+  if (name) { name.style.marginRight = '0'; name.style.marginBottom = '0.4em'; }
+}
+
+// 普通の大きさのコメント1件の幅（縦書きの「列」の幅）。見本を一瞬置いて測る
+function pdBaseLaneWidthV(layer, cfg, fontPx) {
+  const probe = pdFeedItem({ nickname: 'あ', text: 'あ' }, cfg, fontPx, '#fff');
+  pdMakeVertical(probe);
+  probe.style.position = 'absolute';
+  probe.style.visibility = 'hidden';
+  layer.appendChild(probe);
+  const w = probe.offsetWidth + 4;
+  probe.remove();
+  return Math.max(8, w);
 }
 
 // 普通の大きさのコメント1件の高さ（横切る表示の「車線」の高さ）。見本を一瞬置いて測る
@@ -1135,7 +1197,9 @@ function pdFeedItem(data, cfg, fontPx, color) {
   item.style.cssText = `color:${color || cfg.textColor || '#fff'};font-size:${fontPx}px;font-weight:700;padding:${pad};`
     + `border-radius:${base ? Math.round(fontPx * 0.55) + 'px' : '0'};`
     + (base ? `background:${pdHexToRgba(cfg.baseColor || '#000000', opacity)};` : shadow);
-  item.innerHTML = `<span style="opacity:0.75;margin-right:6px;">${esc(data.nickname || data.user)}</span>${esc(data.text)}`;
+  // 名前は「名前を出す」がONのときだけ（初期値は出す）
+  const nameHtml = cfg.showName === false ? '' : `<span style="opacity:0.75;margin-right:6px;">${esc(data.nickname || data.user)}</span>`;
+  item.innerHTML = nameHtml + esc(data.text);
   return item;
 }
 
