@@ -1516,20 +1516,28 @@ function connectWS() {
 
 // 確認用：URLの最後に「&fps=1」（または「?fps=1」）を付けたときだけ、この画面が1秒に何回描き直されているか
 // （コマ数）を左上に出す。Live Studio のリンクの中で、動きがなめらかに描かれているかを調べるため。ふだんは何も出ない
+// 2行目の数字は「120分の1秒ごとに1ずつ増える時計」。配信や録画をコマ送りして、1コマごとにいくつ進むかを見ると、
+// Live Studio が1秒に何回この画面を読み取っているかが分かる（1進む＝120回、2＝60回、4＝30回、8＝15回）
 function startFpsMeter() {
   const m = document.createElement('div');
   m.style.cssText = 'position:fixed;left:8px;top:8px;z-index:9999;background:rgba(0,0,0,0.75);color:#0f0;'
-    + 'font:bold 28px monospace;padding:4px 10px;border-radius:6px;pointer-events:none;';
-  m.textContent = '… fps';
+    + 'font:bold 28px monospace;padding:4px 10px;border-radius:6px;pointer-events:none;line-height:1.3;';
+  const fpsLine = document.createElement('div');
+  const clockLine = document.createElement('div');
+  clockLine.style.cssText = 'color:#ff0;font-size:40px;';
+  fpsLine.textContent = '… fps';
+  m.appendChild(fpsLine);
+  m.appendChild(clockLine);
   document.body.appendChild(m);
   let frames = 0, t0 = performance.now();
   const tick = now => {
     frames++;
     if (now - t0 >= 1000) {
-      m.textContent = Math.round(frames * 1000 / (now - t0)) + ' fps';
+      fpsLine.textContent = Math.round(frames * 1000 / (now - t0)) + ' fps';
       frames = 0;
       t0 = now;
     }
+    clockLine.textContent = String(Math.floor(now / (1000 / 120)) % 10000).padStart(4, '0');
     requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
