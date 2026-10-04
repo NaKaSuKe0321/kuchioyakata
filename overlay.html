@@ -635,8 +635,10 @@ function applyMute(media) {
 }
 
 // 音声の再生。ngrok経由だとAudio要素の直接読み込みは警告ページに阻まれるため、
-// fetch（警告スキップ用ヘッダ付き）で取得してから再生する
-async function playOgiriAudio(url, label) {
+// fetch（警告スキップ用ヘッダ付き）で取得してから再生する。
+// isVoice=true は読み上げの声（コメント読み上げ・お題読み上げ）。声の大きさは VOICEVOX で作るときに
+// 「読み上げ音量」「お題読み上げ」のバーで決めているので、ここでは「演出音」の音量を掛けない（ミュートだけ見る）
+async function playOgiriAudio(url, label, isVoice) {
   if (!url) return;
   try {
     const res = await fetch(absUrl(url), { headers: { 'ngrok-skip-browser-warning': 'true' } });
@@ -644,7 +646,7 @@ async function playOgiriAudio(url, label) {
     const blob = await res.blob();
     // お題の読み上げは毎回違うファイルなので、再生し終えたらメモリを解放する
     const objectUrl = URL.createObjectURL(blob);
-    const audio = applyEffectVolume(new Audio(objectUrl));
+    const audio = isVoice ? applyMute(new Audio(objectUrl)) : applyEffectVolume(new Audio(objectUrl));
     const release = () => URL.revokeObjectURL(objectUrl);
     audio.onended = release;
     audio.onerror = release;
@@ -696,7 +698,7 @@ function handleOgiriState(data, isSnapshot) {
       playOgiriAudio(data.startSoundUrl, 'お題開始効果音');
     }
     if (!isSnapshot && data.voiceUrl && ogiriRowOn('voice')) {
-      playOgiriAudio(data.voiceUrl, 'お題読み上げ');
+      playOgiriAudio(data.voiceUrl, 'お題読み上げ', true);
     }
     if (!isSnapshot && data.odaiSoundUrl && ogiriRowOn('sound')) {
       playOgiriAudio(data.odaiSoundUrl, 'お題専用音源');
@@ -1468,7 +1470,7 @@ function connectWS() {
       // コメント読み上げ（ブラウザ再生方式のときにサーバーから届く）
       if (data.effect === 'comment-tts') {
         if (!data.targets || data.targets.overlay !== false) {
-          playOgiriAudio(data.voiceUrl, 'コメント読み上げ');
+          playOgiriAudio(data.voiceUrl, 'コメント読み上げ', true);
         }
         return;
       }
