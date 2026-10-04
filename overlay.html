@@ -1026,6 +1026,7 @@ function pdFlowComment(data, cfg, style, basePx) {
   item.style.left = '0';
   item.style.top = '0';
   item.style.visibility = 'hidden'; // 大きさを測るまで見せない
+  item.style.willChange = 'transform, opacity'; // 動くものだと先に伝えて、描き直しの負荷を減らす（コマ落ち対策）
   if (vertical) pdMakeVertical(item);              // 縦書き：長くても折り返さず縦1列
   else if (style === 'nico') item.style.whiteSpace = 'nowrap';
   else item.style.maxWidth = '100%';
@@ -1287,7 +1288,7 @@ function renderGiftFlow(data, target, k, attempt) {
       img.src = data.image;
       img.referrerPolicy = 'no-referrer';
       const x = Math.round(W * (0.05 + Math.random() * 0.9) - size / 2);
-      img.style.cssText = `position:absolute;left:${x}px;top:0;width:${size}px;height:${size}px;object-fit:contain;`;
+      img.style.cssText = `position:absolute;left:${x}px;top:0;width:${size}px;height:${size}px;object-fit:contain;will-change:transform;`;
       layer.appendChild(img);
       const rot = (Math.random() * 60 - 30).toFixed(0);
       const dur = (data.seconds || 7) * 1000 * (0.8 + Math.random() * 0.4);
@@ -1321,7 +1322,7 @@ function renderGiftFlow(data, target, k, attempt) {
   }
   while (layer.children.length >= 40) layer.removeChild(layer.firstChild);
   const item = document.createElement('div');
-  item.style.cssText = `position:absolute;left:0;top:0;visibility:hidden;display:flex;align-items:center;gap:${Math.round(8 * k)}px;white-space:nowrap;`;
+  item.style.cssText = `position:absolute;left:0;top:0;visibility:hidden;display:flex;align-items:center;gap:${Math.round(8 * k)}px;white-space:nowrap;will-change:transform;`;
   const img = document.createElement('img');
   img.src = data.image;
   img.referrerPolicy = 'no-referrer';
@@ -1511,7 +1512,29 @@ function connectWS() {
   }
 }
 
+// 確認用：URLの最後に「&fps=1」（または「?fps=1」）を付けたときだけ、この画面が1秒に何回描き直されているか
+// （コマ数）を左上に出す。Live Studio のリンクの中で、動きがなめらかに描かれているかを調べるため。ふだんは何も出ない
+function startFpsMeter() {
+  const m = document.createElement('div');
+  m.style.cssText = 'position:fixed;left:8px;top:8px;z-index:9999;background:rgba(0,0,0,0.75);color:#0f0;'
+    + 'font:bold 28px monospace;padding:4px 10px;border-radius:6px;pointer-events:none;';
+  m.textContent = '… fps';
+  document.body.appendChild(m);
+  let frames = 0, t0 = performance.now();
+  const tick = now => {
+    frames++;
+    if (now - t0 >= 1000) {
+      m.textContent = Math.round(frames * 1000 / (now - t0)) + ' fps';
+      frames = 0;
+      t0 = now;
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
 async function init() {
+  if (/[?&]fps=1(&|$)/.test(location.search)) startFpsMeter();
   await loadEffectConfig();
   connectWS();
 }
